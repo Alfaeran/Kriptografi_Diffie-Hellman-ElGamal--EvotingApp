@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E-Voting Prototipe • Diffie-Hellman & ElGamal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #e2e8f0;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(51, 65, 85, 0.8);
+      border-radius: 4px;
+    }
+    @keyframes pulse-beam {
+      0% { left: 0%; opacity: 0.2; }
+      50% { opacity: 1; }
+      100% { left: 100%; opacity: 0.2; }
+    }
+    .beam-active {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 40px;
+      background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+      animation: pulse-beam 1.2s infinite linear;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col text-slate-200 text-xs antialiased bg-[#0B0F19]">
+
+  <!-- ======================================================== -->
+  <!-- COMPACT TOP BAR -->
+  <!-- ======================================================== -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40 px-4 py-2.5">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      
+      <!-- Title & Context -->
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-mono font-bold text-emerald-400 text-sm shadow-inner">
+          λ
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-slate-100 text-sm tracking-tight">E-Voting Prototipe</h1>
+            <span class="text-[10px] text-slate-400 font-mono">DHKE + ElGamal</span>
+            <span id="system-badge" class="px-2 py-0.2 rounded-full text-[10px] font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Sesi Dibuka
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400">Pengamanan Kanal Transmisi (DH) & Kerahasiaan Surat Suara (ElGamal)</p>
+        </div>
+      </div>
+
+      <!-- Live Parameters Inline -->
+      <div class="flex items-center gap-2 font-mono text-[11px]">
+        <div class="hidden xl:flex items-center gap-2 bg-slate-950/80 border border-slate-800 rounded px-2.5 py-1 text-slate-300">
+          <span class="text-slate-500">p:</span>
+          <span id="param-p" class="text-emerald-400 truncate max-w-[120px]">-</span>
+          <span class="text-slate-600">|</span>
+          <span class="text-slate-500">g:</span>
+          <span id="param-g" class="text-sky-400 truncate max-w-[80px]">-</span>
+          <span class="text-slate-600">|</span>
+          <span class="text-slate-500">y_pub:</span>
+          <span id="param-y" class="text-amber-400 truncate max-w-[120px]">-</span>
+        </div>
+
+        <!-- Bit Selector -->
+        <div class="flex items-center bg-slate-950 border border-slate-800 rounded p-0.5">
+          <button onclick="setKeyBits(32)" id="btn-bits-32" class="px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-600 text-white transition">32-bit</button>
+          <button onclick="setKeyBits(64)" id="btn-bits-64" class="px-2 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-white transition">64-bit</button>
+          <button onclick="setKeyBits(128)" id="btn-bits-128" class="px-2 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-white transition">128-bit</button>
+        </div>
+
+        <button onclick="resetSystem()" title="Generate ulang parameter & reset kotak suara" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[11px] transition flex items-center gap-1">
+          <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Reset
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ======================================================== -->
+  <!-- MAIN COMPACT COCKPIT (3-COLUMN DENSE GRID) -->
+  <!-- ======================================================== -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-stretch">
+
+    <!-- ====================================================== -->
+    <!-- PANEL 1: CLIENT / BILIK SUARA (4 COLS) -->
+    <!-- ====================================================== -->
+    <div class="lg:col-span-4 bg-slate-900/90 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between shadow-lg">
+      <div>
+        <!-- Section Title -->
+        <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-mono font-bold text-xs">1</span>
+            <span class="font-bold text-slate-100 text-xs">Bilik Suara (Client)</span>
+          </div>
+          <span id="dh-status-pill" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+            Kanal: Terputus
+          </span>
+        </div>
+
+        <!-- Form Pemilih Inline -->
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          <div>
+            <label class="block text-[10px] text-slate-400 mb-0.5">NIK Pemilih</label>
+            <input type="text" id="voter-nik" value="3201123456780001" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none" />
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-400 mb-0.5">Nama Pemilih</label>
+            <input type="text" id="voter-name" value="Alice Ramadhani" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+          </div>
+        </div>
+
+        <!-- Kandidat Cards (Compact) -->
+        <div class="mb-3">
+          <span class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Pilihan Kandidat:</span>
+          <div class="space-y-1.5" id="candidates-list">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+        <!-- Alur Eksekusi Kriptografi (Unified Stepper) -->
+        <div class="space-y-2 pt-2 border-t border-slate-800">
+          
+          <!-- Step 1: DH -->
+          <div class="bg-slate-950/70 border border-slate-800/90 rounded p-2">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="font-semibold text-sky-400 text-[11px] flex items-center gap-1.5">
+                <span class="w-3.5 h-3.5 rounded bg-sky-950 text-sky-400 border border-sky-800 text-[9px] flex items-center justify-center font-mono">A</span>
+                Kanal Sesi (Diffie-Hellman)
+              </span>
+              <span id="step-dh-indicator" class="text-[10px] text-slate-500 font-mono">Belum dibuat</span>
+            </div>
+            <button onclick="executeDHHandshake()" id="btn-dh" class="w-full py-1 px-2.5 bg-sky-600/90 hover:bg-sky-500 text-white rounded text-[11px] font-medium transition flex items-center justify-center gap-1 shadow-sm">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              Negosiasi Kunci Sesi (DHKE)
+            </button>
+            <div id="dh-result-mini" class="hidden mt-1.5 p-1.5 bg-slate-900 border border-slate-800 rounded font-mono text-[10px] text-slate-300 space-y-0.5"></div>
+          </div>
+
+          <!-- Step 2: ElGamal -->
+          <div class="bg-slate-950/70 border border-slate-800/90 rounded p-2">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="font-semibold text-emerald-400 text-[11px] flex items-center gap-1.5">
+                <span class="w-3.5 h-3.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[9px] flex items-center justify-center font-mono">B</span>
+                Enkripsi Surat Suara (ElGamal)
+              </span>
+              <span id="step-elg-indicator" class="text-[10px] text-slate-500 font-mono">Belum dienkripsi</span>
+            </div>
+            <button onclick="executeElGamalEncrypt()" id="btn-elg" disabled class="w-full py-1 px-2.5 bg-slate-800 text-slate-500 cursor-not-allowed rounded text-[11px] font-medium transition flex items-center justify-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+              Kunci Pilihan Suara
+            </button>
+            <div id="elg-result-mini" class="hidden mt-1.5 p-1.5 bg-slate-900 border border-slate-800 rounded font-mono text-[10px] text-slate-300 space-y-0.5"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Step 3: Kirim -->
+      <div class="pt-3 mt-3 border-t border-slate-800">
+        <button onclick="castBallot()" id="btn-cast" disabled class="w-full py-2 px-3 bg-slate-800 text-slate-500 cursor-not-allowed rounded font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-1.5">
+          <span>Kirim Suara Lewat Kanal Aman</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ====================================================== -->
+    <!-- PANEL 2: THE WIRE / KANAL JARINGAN (4 COLS) -->
+    <!-- ====================================================== -->
+    <div class="lg:col-span-4 bg-slate-900/90 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between shadow-lg">
+      <div class="flex-1 flex flex-col">
+        <!-- Section Title -->
+        <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 flex items-center justify-center font-mono font-bold text-xs">2</span>
+            <span class="font-bold text-slate-100 text-xs">Jalur Transmisi Publik</span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-400">Monitoring Sesi</span>
+        </div>
+
+        <!-- Schematic Wire -->
+        <div class="bg-slate-950 border border-slate-800 rounded p-2.5 mb-3 text-center relative overflow-hidden">
+          <div class="flex justify-between items-center text-[10px] font-mono text-slate-400 mb-1.5">
+            <span class="text-emerald-400 font-semibold">Node Pemilih</span>
+            <span class="text-sky-400 font-semibold">Kanal DH Terenkripsi</span>
+            <span class="text-amber-400 font-semibold">Server Penyelenggara</span>
+          </div>
+
+          <div class="h-1.5 bg-slate-800/80 rounded-full relative overflow-hidden">
+            <div id="transit-beam" class="hidden beam-active"></div>
+          </div>
+
+          <div id="transit-status" class="text-[10px] text-slate-500 font-mono mt-1.5">
+            Status: Menunggu paket suara...
+          </div>
+        </div>
+
+        <!-- Wire Payload Sniffer -->
+        <div class="flex-1 flex flex-col bg-slate-950 border border-slate-800/90 rounded p-2.5">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-mono font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+              <svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              Tangkapan Paket (Sniffer Log)
+            </span>
+            <span class="text-[9px] text-slate-500 font-mono">Stream Cipher XOR</span>
+          </div>
+          <p class="text-[10px] text-slate-400 mb-2">Bentuk data saat melintasi kabel jaringan publik:</p>
+
+          <div id="wire-hex-display" class="flex-1 min-h-[140px] max-h-[190px] bg-black/60 border border-slate-800 rounded p-2 font-mono text-[10px] text-emerald-400/90 break-all overflow-y-auto custom-scroll select-all">
+            // Belum ada paket transmisi
+          </div>
+
+          <div class="mt-2.5 p-2 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-400 leading-relaxed">
+            <span class="text-amber-300 font-semibold">Keamanan Berlapis:</span> 
+            Pihak ketiga di jaringan hanya melihat ciphertext teracak di atas. Isi surat suara tetap aman meski paket disadap.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================== -->
+    <!-- PANEL 3: SERVER & KOTAK SUARA (4 COLS) -->
+    <!-- ====================================================== -->
+    <div class="lg:col-span-4 bg-slate-900/90 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between shadow-lg">
+      <div class="flex-1 flex flex-col">
+        <!-- Section Title -->
+        <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center justify-center font-mono font-bold text-xs">3</span>
+            <span class="font-bold text-slate-100 text-xs">Server & Kotak Suara</span>
+          </div>
+          <span id="ballot-counter" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+            0 Surat Suara
+          </span>
+        </div>
+
+        <!-- Kotak Suara Digital Ledger -->
+        <div class="flex-1 flex flex-col bg-slate-950 border border-slate-800/90 rounded p-2.5 mb-3">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[10px] font-mono font-semibold text-slate-300 uppercase tracking-wider">Kotak Suara Terenkripsi</span>
+            <span class="text-[9px] text-emerald-400 font-mono">Format: (c1, c2)</span>
+          </div>
+
+          <div id="ballots-container" class="flex-1 min-h-[140px] max-h-[190px] overflow-y-auto custom-scroll space-y-1.5 pr-0.5">
+            <div class="text-center py-10 text-slate-600 font-mono text-[11px]">Kotak suara kosong</div>
+          </div>
+        </div>
+
+        <!-- Tombol Tally & Hasil Rekapitulasi -->
+        <div class="space-y-2">
+          <button onclick="closeAndTallyElection()" id="btn-tally" class="w-full py-1.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-xs transition flex items-center justify-center gap-1.5 shadow">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            Tutup Pemilihan & Hitung Hasil (Tally)
+          </button>
+
+          <!-- Tally Results Box -->
+          <div id="tally-box" class="hidden bg-slate-950 border border-amber-500/40 rounded p-2.5 space-y-2">
+            <div class="flex justify-between items-center text-[10px] font-mono text-amber-400 font-semibold border-b border-slate-800 pb-1">
+              <span>Hasil Dekripsi Akhir</span>
+              <span>Kunci Privat x Dibuka</span>
+            </div>
+            <div id="tally-bars" class="space-y-1.5">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ======================================================== -->
+  <!-- DENSE BOTTOM DRAWER: MATHEMATICAL AUDIT LOG -->
+  <!-- ======================================================== -->
+  <section class="max-w-7xl w-full mx-auto px-3 sm:px-4 pb-4">
+    <div class="bg-slate-900/90 border border-slate-800 rounded-lg p-3 shadow-lg">
+      
+      <!-- Drawer Header with Compact Tabs -->
+      <div class="flex flex-wrap items-center justify-between pb-2 mb-2 border-b border-slate-800 gap-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-slate-100">Audit Matematis Per Tahap</span>
+          <span class="text-[10px] text-slate-400">Verifikasi perhitungan modular secara transparan</span>
+        </div>
+
+        <div class="flex items-center bg-slate-950 p-0.5 rounded border border-slate-800 text-[11px]">
+          <button onclick="setTab('setup')" id="tab-btn-setup" class="px-2.5 py-0.5 rounded font-medium bg-slate-800 text-emerald-400 transition">Setup KPU</button>
+          <button onclick="setTab('dh')" id="tab-btn-dh" class="px-2.5 py-0.5 rounded font-medium text-slate-400 hover:text-slate-200 transition">Handshake DH</button>
+          <button onclick="setTab('elg-enc')" id="tab-btn-elg-enc" class="px-2.5 py-0.5 rounded font-medium text-slate-400 hover:text-slate-200 transition">Enkripsi ElGamal</button>
+          <button onclick="setTab('elg-dec')" id="tab-btn-elg-dec" class="px-2.5 py-0.5 rounded font-medium text-slate-400 hover:text-slate-200 transition">Dekripsi KPU</button>
+        </div>
+      </div>
+
+      <!-- Tab Content Area (Compact Monospace) -->
+      <div class="bg-slate-950 rounded p-2.5 border border-slate-800 font-mono text-[11px] text-slate-300">
+        
+        <!-- Tab 1: Setup -->
+        <div id="tab-content-setup" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="space-y-0.5">
+            <span class="text-slate-500 font-bold block">// Parameter Domain Publik:</span>
+            <p>Modulus Prima (p) = <span id="m-setup-p" class="text-emerald-400">-</span></p>
+            <p>Generator (g)     = <span id="m-setup-g" class="text-sky-400">-</span></p>
+          </div>
+          <div class="space-y-0.5">
+            <span class="text-slate-500 font-bold block">// Pasangan Kunci Otoritas (KPU):</span>
+            <p>Private Key (x)   = <span id="m-setup-x" class="text-amber-400">Terkunci sampai akhir pemilu</span></p>
+            <p>Public Key (y)    = g^x mod p = <span id="m-setup-y" class="text-emerald-400">-</span></p>
+          </div>
+        </div>
+
+        <!-- Tab 2: DH -->
+        <div id="tab-content-dh" class="hidden grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="space-y-0.5">
+            <span class="text-slate-500 font-bold block">// Pihak Pemilih (Alice):</span>
+            <p>Privat a  = <span id="m-dh-a" class="text-sky-300">-</span></p>
+            <p>Publik A  = g^a mod p = <span id="m-dh-A" class="text-emerald-300">-</span></p>
+            <p class="text-amber-300 font-bold">Kunci Sesi K = B^a mod p = <span id="m-dh-Ka">-</span></p>
+          </div>
+          <div class="space-y-0.5">
+            <span class="text-slate-500 font-bold block">// Pihak Server (KPU):</span>
+            <p>Privat b  = <span id="m-dh-b" class="text-sky-300">-</span></p>
+            <p>Publik B  = g^b mod p = <span id="m-dh-B" class="text-emerald-300">-</span></p>
+            <p class="text-amber-300 font-bold">Kunci Sesi K = A^b mod p = <span id="m-dh-Kb">-</span></p>
+          </div>
+        </div>
+
+        <!-- Tab 3: ElGamal Encrypt -->
+        <div id="tab-content-elg-enc" class="hidden space-y-0.5">
+          <span class="text-slate-500 font-bold block">// Enkripsi Pilihan Suara:</span>
+          <p>1. Suara Pemilih (m)     = <span id="m-enc-m" class="text-white font-bold">-</span></p>
+          <p>2. Bilangan Acak (k)     = <span id="m-enc-k" class="text-sky-300">-</span></p>
+          <p>3. Ciphertext Komponen c1= g^k mod p = <span id="m-enc-c1" class="text-emerald-300">-</span></p>
+          <p>4. Masker Bersama (s)    = y^k mod p = <span id="m-enc-s" class="text-amber-300">-</span></p>
+          <p>5. Ciphertext Komponen c2= (m * s) mod p = <span id="m-enc-c2" class="text-emerald-300">-</span></p>
+        </div>
+
+        <!-- Tab 4: ElGamal Decrypt -->
+        <div id="tab-content-elg-dec" class="hidden space-y-0.5">
+          <span class="text-slate-500 font-bold block">// Rekonstruksi Suara oleh KPU (Setelah Ditutup):</span>
+          <p>1. Rekonstruksi Masker (s)   = c1^x mod p = <span id="m-dec-s" class="text-amber-300">-</span></p>
+          <p>2. Invers Modular (s^-1)     = modInverse(s, p) = <span id="m-dec-inv" class="text-sky-300">-</span></p>
+          <p>3. Pemulihan Pesan Asli (m)  = (c2 * s^-1) mod p = <span id="m-dec-m" class="text-emerald-400 font-bold">-</span></p>
+          <p>4. Teridentifikasi Sebagai   = <span id="m-dec-cand" class="text-white font-bold">-</span></p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================== -->
+  <!-- FOOTER -->
+  <!-- ======================================================== -->
+  <footer class="mt-auto border-t border-slate-800/80 bg-slate-950 py-2.5 px-4 text-center text-[11px] text-slate-500">
+    <p>Praktikum Kriptografi • Prototipe Sistem E-Voting Mandiri (Diffie-Hellman & ElGamal)</p>
+  </footer>
+
+  <!-- ======================================================== -->
+  <!-- JAVASCRIPT LOGIC -->
+  <!-- ======================================================== -->
+  <script>
+    let state = null;
+    let selectedCandidateId = 1;
+    let dhSession = null;
+    let elgCipher = null;
+
+    window.addEventListener('DOMContentLoaded', initApp);
+
+    async function initApp() {
+      await fetchStatus();
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        state = await res.json();
+        renderHeader();
+        renderCandidates();
+        renderBallots();
+        renderTally();
+        updateMathView();
+      } catch (e) {
+        console.error("Gagal sinkronisasi status:", e);
+      }
+    }
+
+    function renderHeader() {
+      if (!state) return;
+      const el = state.election;
+      document.getElementById('param-p').innerText = el.p;
+      document.getElementById('param-g').innerText = el.g;
+      document.getElementById('param-y').innerText = el.kpu_public_key.y;
+
+      const badge = document.getElementById('system-badge');
+      if (el.is_closed) {
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> Pemilihan Selesai`;
+        badge.className = "px-2 py-0.2 rounded-full text-[10px] font-medium bg-amber-950/80 text-amber-300 border border-amber-700/60 flex items-center gap-1";
+      } else {
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Sesi Dibuka`;
+        badge.className = "px-2 py-0.2 rounded-full text-[10px] font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 flex items-center gap-1";
+      }
+
+      [32, 64, 128].forEach(b => {
+        const btn = document.getElementById(`btn-bits-${b}`);
+        if (btn) {
+          if (el.bits === b) {
+            btn.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-600 text-white transition";
+          } else {
+            btn.className = "px-2 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-white transition";
+          }
+        }
+      });
+    }
+
+    function renderCandidates() {
+      if (!state || !state.candidates) return;
+      const container = document.getElementById('candidates-list');
+      container.innerHTML = '';
+
+      state.candidates.forEach(cand => {
+        const isSelected = cand.id === selectedCandidateId;
+        const div = document.createElement('div');
+        div.onclick = () => selectCandidate(cand.id);
+        div.className = `p-2 rounded border cursor-pointer transition flex items-center justify-between ${
+          isSelected 
+            ? 'bg-emerald-950/50 border-emerald-500/80 text-white shadow-sm' 
+            : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700'
+        }`;
+        div.innerHTML = `
+          <div class="flex items-center space-x-2.5">
+            <span class="w-5 h-5 rounded font-bold font-mono text-[10px] flex items-center justify-center ${
+              isSelected ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-300'
+            }">${cand.number}</span>
+            <div>
+              <div class="font-bold text-xs leading-tight">${cand.name}</div>
+              <div class="text-[10px] text-slate-400">${cand.tagline}</div>
+            </div>
+          </div>
+          <span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400">${cand.badge}</span>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function selectCandidate(id) {
+      if (state && state.election.is_closed) return;
+      selectedCandidateId = id;
+      renderCandidates();
+      elgCipher = null;
+      document.getElementById('step-elg-indicator').innerText = 'Belum dienkripsi';
+      document.getElementById('elg-result-mini').classList.add('hidden');
+      updateButtonStates();
+    }
+
+    // Step 1: DH
+    async function executeDHHandshake() {
+      if (!state) return;
+      const p = BigInt(state.election.p);
+      const g = BigInt(state.election.g);
+
+      // Private a
+      const a = BigInt(Math.floor(Math.random() * 80000) + 2);
+      // Public A = g^a mod p
+      const A = modPow(g, a, p);
+
+      try {
+        const res = await fetch('/api/dh-handshake', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ client_pub_A: A.toString() })
+        });
+        const d = await res.json();
+        if (d.status === 'success') {
+          const B = BigInt(d.server_pub_B);
+          const K = modPow(B, a, p);
+
+          dhSession = {
+            sessionId: d.session_id,
+            a: a.toString(),
+            A: A.toString(),
+            B: B.toString(),
+            K: K.toString(),
+            mathSteps: d.math_steps
+          };
+
+          const pill = document.getElementById('dh-status-pill');
+          pill.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700";
+          pill.innerText = "Kanal: Terenkripsi";
+
+          document.getElementById('step-dh-indicator').innerText = "Kunci Sesi Terbentuk";
+          document.getElementById('step-dh-indicator').className = "text-[10px] text-emerald-400 font-mono";
+
+          const mini = document.getElementById('dh-result-mini');
+          mini.classList.remove('hidden');
+          mini.innerHTML = `
+            <div>Privat a = ${a} | Publik A = ${A}</div>
+            <div class="text-amber-400 font-bold">Kunci Sesi K = ${K}</div>
+          `;
+
+          animateWire("Handshake DH selesai. Kanal sesi aman aktif.");
+          updateButtonStates();
+          updateMathView();
+        }
+      } catch (err) {
+        alert("DH Handshake error: " + err);
+      }
+    }
+
+    // Step 2: ElGamal
+    function executeElGamalEncrypt() {
+      if (!state) return;
+      const p = BigInt(state.election.p);
+      const g = BigInt(state.election.g);
+      const y = BigInt(state.election.kpu_public_key.y);
+      const m = BigInt(selectedCandidateId);
+
+      const k = BigInt(Math.floor(Math.random() * 80000) + 2);
+      const c1 = modPow(g, k, p);
+      const s = modPow(y, k, p);
+      const c2 = (m * s) % p;
+
+      elgCipher = {
+        m: m.toString(),
+        k: k.toString(),
+        c1: c1.toString(),
+        s: s.toString(),
+        c2: c2.toString()
+      };
+
+      document.getElementById('step-elg-indicator').innerText = "Tersandi (c1, c2)";
+      document.getElementById('step-elg-indicator').className = "text-[10px] text-emerald-400 font-mono";
+
+      const mini = document.getElementById('elg-result-mini');
+      mini.classList.remove('hidden');
+      mini.innerHTML = `
+        <div>Ephemeral k = ${k} | Masker s = ${s}</div>
+        <div class="text-emerald-400 font-bold">Ciphertext: c1=${c1}, c2=${c2}</div>
+      `;
+
+      updateButtonStates();
+      updateMathView();
+    }
+
+    // Step 3: Kirim
+    async function castBallot() {
+      if (!dhSession || !elgCipher) return;
+
+      const nik = document.getElementById('voter-nik').value.trim();
+      const name = document.getElementById('voter-name').value.trim();
+
+      if (!nik || !name) {
+        alert("Lengkapi NIK dan Nama Pemilih.");
+        return;
+      }
+
+      const payloadRaw = JSON.stringify({
+        nik: nik,
+        name: name,
+        c1: elgCipher.c1,
+        c2: elgCipher.c2,
+        t: Date.now()
+      });
+
+      const encryptedHex = clientStreamXOR(payloadRaw, BigInt(dhSession.K));
+      document.getElementById('wire-hex-display').innerText = encryptedHex;
+      animateWire("Mentransmisikan paket suara tersegel...");
+
+      try {
+        const res = await fetch('/api/cast-vote', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            session_id: dhSession.sessionId,
+            nik: nik,
+            name: name,
+            encrypted_payload_hex: encryptedHex,
+            c1: elgCipher.c1,
+            c2: elgCipher.c2,
+            math_steps: {
+              candidate_id: elgCipher.m,
+              k_ephemeral: elgCipher.k,
+              c1: elgCipher.c1,
+              mask_s: elgCipher.s,
+              c2: elgCipher.c2
+            }
+          })
+        });
+
+        const d = await res.json();
+        if (d.status === 'success') {
+          // Reset client
+          elgCipher = null;
+          dhSession = null;
+          document.getElementById('dh-status-pill').className = "text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700";
+          document.getElementById('dh-status-pill').innerText = "Kanal: Terputus";
+          document.getElementById('step-dh-indicator').innerText = "Belum dibuat";
+          document.getElementById('dh-result-mini').classList.add('hidden');
+          document.getElementById('step-elg-indicator').innerText = "Belum dienkripsi";
+          document.getElementById('elg-result-mini').classList.add('hidden');
+
+          const num = parseInt(nik.slice(-4)) || 1;
+          document.getElementById('voter-nik').value = nik.slice(0, -4) + String(num + 1).padStart(4, '0');
+          document.getElementById('voter-name').value = "Pemilih #" + (num + 1);
+
+          updateButtonStates();
+          await fetchStatus();
+        } else {
+          alert("Gagal kirim: " + d.message);
+        }
+      } catch (err) {
+        alert("Kesalahan koneksi: " + err);
+      }
+    }
+
+    async function closeAndTallyElection() {
+      if (!confirm("Tutup masa pemilihan dan hitung suara masuk menggunakan Kunci Privat KPU?")) return;
+      try {
+        const res = await fetch('/api/tally', { method: 'POST' });
+        const d = await res.json();
+        if (d.status === 'success') {
+          await fetchStatus();
+          setTab('elg-dec');
+        } else {
+          alert("Gagal tally: " + d.message);
+        }
+      } catch (e) {
+        alert("Kesalahan: " + e);
+      }
+    }
+
+    async function resetSystem() {
+      if (!confirm("Reset pemilu dan buat parameter acak baru?")) return;
+      try {
+        const res = await fetch('/api/reset', { method: 'POST' });
+        const d = await res.json();
+        if (d.status === 'success') {
+          dhSession = null;
+          elgCipher = null;
+          await fetchStatus();
+        }
+      } catch (e) {
+        alert("Gagal reset: " + e);
+      }
+    }
+
+    async function setKeyBits(bits) {
+      try {
+        const res = await fetch('/api/setup', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ bits: bits })
+        });
+        const d = await res.json();
+        if (d.status === 'success') {
+          dhSession = null;
+          elgCipher = null;
+          await fetchStatus();
+        }
+      } catch (e) {
+        alert("Gagal ubah bit: " + e);
+      }
+    }
+
+    function renderBallots() {
+      if (!state) return;
+      const container = document.getElementById('ballots-container');
+      const ballots = state.election.ballots_preview || [];
+      document.getElementById('ballot-counter').innerText = `${ballots.length} Surat Suara`;
+
+      if (ballots.length === 0) {
+        container.innerHTML = `<div class="text-center py-10 text-slate-600 font-mono text-[11px]">Kotak suara kosong</div>`;
+        return;
+      }
+
+      container.innerHTML = '';
+      ballots.forEach(b => {
+        const row = document.createElement('div');
+        row.className = "bg-slate-900 border border-slate-800 rounded p-1.5 font-mono text-[10px] space-y-0.5";
+        row.innerHTML = `
+          <div class="flex justify-between text-slate-400">
+            <span class="text-emerald-400 font-bold">Surat #${b.id} (${b.nik_masked})</span>
+            <span class="text-[9px] text-slate-500">${b.timestamp.split(' ')[1]}</span>
+          </div>
+          <div class="text-slate-400 truncate">c1: ${b.c1}</div>
+          <div class="text-slate-400 truncate">c2: ${b.c2}</div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function renderTally() {
+      if (!state || !state.election.tally_results) {
+        document.getElementById('tally-box').classList.add('hidden');
+        return;
+      }
+      const box = document.getElementById('tally-box');
+      const container = document.getElementById('tally-bars');
+      box.classList.remove('hidden');
+      container.innerHTML = '';
+
+      state.election.tally_results.forEach(item => {
+        const div = document.createElement('div');
+        div.className = "space-y-0.5 text-[11px]";
+        div.innerHTML = `
+          <div class="flex justify-between text-slate-300 font-mono">
+            <span>${item.number} - ${item.name.split('&')[0]}</span>
+            <span class="font-bold text-amber-400">${item.count} suara (${item.percentage}%)</span>
+          </div>
+          <div class="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden border border-slate-800">
+            <div class="bg-gradient-to-r from-amber-500 to-emerald-400 h-full rounded-full transition-all duration-500" style="width: ${item.percentage}%"></div>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function updateButtonStates() {
+      const isClosed = state && state.election.is_closed;
+      const btnDH = document.getElementById('btn-dh');
+      const btnElg = document.getElementById('btn-elg');
+      const btnCast = document.getElementById('btn-cast');
+
+      if (isClosed) {
+        btnDH.disabled = true;
+        btnElg.disabled = true;
+        btnCast.disabled = true;
+        btnDH.className = "w-full py-1 px-2.5 bg-slate-800 text-slate-500 cursor-not-allowed rounded text-[11px] font-medium";
+        btnElg.className = "w-full py-1 px-2.5 bg-slate-800 text-slate-500 cursor-not-allowed rounded text-[11px] font-medium";
+        btnCast.className = "w-full py-2 px-3 bg-slate-800 text-slate-500 cursor-not-allowed rounded font-bold text-xs uppercase";
+        return;
+      }
+
+      if (dhSession) {
+        btnElg.disabled = false;
+        btnElg.className = "w-full py-1 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-medium transition shadow-sm";
+      } else {
+        btnElg.disabled = true;
+        btnElg.className = "w-full py-1 px-2.5 bg-slate-800 text-slate-500 cursor-not-allowed rounded text-[11px] font-medium";
+      }
+
+      if (dhSession && elgCipher) {
+        btnCast.disabled = false;
+        btnCast.className = "w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-xs uppercase tracking-wider transition shadow flex items-center justify-center gap-1.5";
+      } else {
+        btnCast.disabled = true;
+        btnCast.className = "w-full py-2 px-3 bg-slate-800 text-slate-500 cursor-not-allowed rounded font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-1.5";
+      }
+    }
+
+    function animateWire(msg) {
+      const beam = document.getElementById('transit-beam');
+      const txt = document.getElementById('transit-status');
+      txt.innerText = msg;
+      beam.classList.remove('hidden');
+      setTimeout(() => {
+        beam.classList.add('hidden');
+      }, 1500);
+    }
+
+    function setTab(name) {
+      ['setup', 'dh', 'elg-enc', 'elg-dec'].forEach(t => {
+        document.getElementById(`tab-content-${t}`).classList.add('hidden');
+        document.getElementById(`tab-btn-${t}`).className = "px-2.5 py-0.5 rounded font-medium text-slate-400 hover:text-slate-200 transition";
+      });
+      document.getElementById(`tab-content-${name}`).classList.remove('hidden');
+      document.getElementById(`tab-btn-${name}`).className = "px-2.5 py-0.5 rounded font-medium bg-slate-800 text-emerald-400 transition";
+    }
+
+    function updateMathView() {
+      if (!state) return;
+      const el = state.election;
+
+      // Tab Setup
+      document.getElementById('m-setup-p').innerText = el.p;
+      document.getElementById('m-setup-g').innerText = el.g;
+      document.getElementById('m-setup-y').innerText = el.kpu_public_key.y;
+      document.getElementById('m-setup-x').innerText = el.is_closed && state.last_math_log?.setup ? state.last_math_log.setup.kpu_x : "Terkunci sampai akhir pemilu";
+
+      // Tab DH
+      if (dhSession) {
+        document.getElementById('m-dh-a').innerText = dhSession.a;
+        document.getElementById('m-dh-A').innerText = dhSession.A;
+        document.getElementById('m-dh-Ka').innerText = dhSession.K;
+        if (dhSession.mathSteps) {
+          document.getElementById('m-dh-b').innerText = dhSession.mathSteps.server_priv_b;
+          document.getElementById('m-dh-B').innerText = dhSession.mathSteps.server_pub_B;
+          document.getElementById('m-dh-Kb').innerText = dhSession.mathSteps.shared_key;
+        }
+      }
+
+      // Tab ElG Enc
+      if (elgCipher) {
+        document.getElementById('m-enc-m').innerText = `${elgCipher.m} (Kandidat 0${elgCipher.m})`;
+        document.getElementById('m-enc-k').innerText = elgCipher.k;
+        document.getElementById('m-enc-c1').innerText = elgCipher.c1;
+        document.getElementById('m-enc-s').innerText = elgCipher.s;
+        document.getElementById('m-enc-c2').innerText = elgCipher.c2;
+      }
+
+      // Tab ElG Dec
+      const lastAudit = (el.audit_proofs && el.audit_proofs.length > 0) ? el.audit_proofs[el.audit_proofs.length - 1] : null;
+      if (lastAudit) {
+        document.getElementById('m-dec-s').innerText = lastAudit.recovered_s;
+        document.getElementById('m-dec-inv').innerText = lastAudit.s_inv;
+        document.getElementById('m-dec-m').innerText = lastAudit.decrypted_candidate_id;
+        document.getElementById('m-dec-cand').innerText = lastAudit.candidate_name;
+      }
+    }
+
+    function modPow(base, exp, mod) {
+      let res = 1n;
+      base = base % mod;
+      while (exp > 0n) {
+        if (exp % 2n === 1n) res = (res * base) % mod;
+        base = (base * base) % mod;
+        exp = exp / 2n;
+      }
+      return res;
+    }
+
+    function clientStreamXOR(text, secretBigInt) {
+      const encoder = new TextEncoder();
+      const plainBytes = encoder.encode(text);
+      let state = secretBigInt & 0xFFFFFFFFFFFFFFFFn;
+      const hexChars = [];
+
+      for (let i = 0; i < plainBytes.length; i++) {
+        state = (6364136223846793005n * state + 1442695040888963407n) & 0xFFFFFFFFFFFFFFFFn;
+        const k = Number((state >> 33n) & 0xFFn);
+        const cipherByte = plainBytes[i] ^ k;
+        hexChars.push(cipherByte.toString(16).padStart(2, '0'));
+      }
+      return hexChars.join('');
+    }
+  </script>
+</body>
+</html>
